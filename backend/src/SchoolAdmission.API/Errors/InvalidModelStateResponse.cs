@@ -10,8 +10,13 @@ public static class InvalidModelStateResponse
 {
     public static IActionResult Create(ActionContext context)
     {
+        // Drop the generic "<parameter> field is required" entry that accompanies every body binding failure.
+        var parameterNames = context.ActionDescriptor.Parameters
+            .Select(p => p.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var errors = context.ModelState
-            .Where(entry => entry.Value is { Errors.Count: > 0 })
+            .Where(entry => entry.Value is { Errors.Count: > 0 } && !parameterNames.Contains(entry.Key))
             .ToDictionary(
                 entry => NormalizeKey(entry.Key),
                 entry => entry.Value!.Errors
