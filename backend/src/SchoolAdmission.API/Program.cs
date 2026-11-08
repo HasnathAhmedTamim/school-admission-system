@@ -1,11 +1,12 @@
 using SchoolAdmission.API.Errors;
 using SchoolAdmission.Application;
+using SchoolAdmission.Application.Admissions;
 using SchoolAdmission.Infrastructure;
 using SchoolAdmission.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddApplication();
+builder.Services.AddApplication(HoldSettings.FromSetting(builder.Configuration["HOLD_DURATION_SECONDS"]));
 builder.Services.AddInfrastructure(builder.Configuration.GetConnectionString("DefaultConnection"));
 
 builder.Services

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using SchoolAdmission.Application.Admissions;
 using SchoolAdmission.Application.Classes;
 
 namespace SchoolAdmission.API.Controllers;
@@ -24,4 +25,15 @@ public sealed class ClassesController(IClassService classService) : ControllerBa
     [HttpGet("{classId}")]
     public async Task<ActionResult<ClassResponse>> GetById(string classId, CancellationToken cancellationToken) =>
         Ok(await classService.GetByIdAsync(classId, cancellationToken));
+
+    [HttpPost("{classId}/holds")]
+    public async Task<ActionResult<HoldCreatedResponse>> Apply(
+        string classId,
+        [FromHeader(Name = StudentIdentity.HeaderName)] string? studentId,
+        [FromServices] IAdmissionService admissionService,
+        CancellationToken cancellationToken)
+    {
+        var hold = await admissionService.ApplyAsync(classId, studentId, cancellationToken);
+        return Created($"/holds/{hold.HoldId}", hold);
+    }
 }

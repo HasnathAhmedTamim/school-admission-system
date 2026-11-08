@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Microsoft.AspNetCore.Diagnostics;
 using SchoolAdmission.Application.Common.Exceptions;
 
@@ -17,14 +18,16 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
             BadHttpRequestException ex => (ex.StatusCode,
                 new ErrorResponse("BAD_REQUEST", "The request could not be processed. Please check the data you sent.")),
             OperationCanceledException when httpContext.RequestAborted.IsCancellationRequested => (499, null),
+            _ when IsTransientDatabaseError(exception) => (StatusCodes.Status503ServiceUnavailable,
+                new ErrorResponse("SERVICE_BUSY", "The server is very busy right now. Please try again in a few seconds.")),
             _ => (StatusCodes.Status500InternalServerError,
                 new ErrorResponse("INTERNAL_ERROR", "Something went wrong on our side. Please try again in a moment."))
         };
 
         if (statusCode >= 500)
         {
-            logger.LogError(exception, "Unhandled exception for {Method} {Path}",
-                httpContext.Request.Method, httpContext.Request.Path);
+            logger.LogError(exception, "Request failed with {StatusCode} for {Method} {Path}",
+                statusCode, httpContext.Request.Method, httpContext.Request.Path);
         }
 
         httpContext.Response.StatusCode = statusCode;
@@ -34,5 +37,18 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
         }
 
         return true;
+    }
+
+    private static bool IsTransientDatabaseError(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is DbException { IsTransient: true } or TimeoutException)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
