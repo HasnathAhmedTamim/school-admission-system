@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using SchoolAdmission.Application.Classes;
 using SchoolAdmission.Infrastructure.Persistence;
+using SchoolAdmission.Infrastructure.Persistence.Repositories;
 
 namespace SchoolAdmission.Infrastructure;
 
@@ -16,6 +18,8 @@ public static class DependencyInjection
 
         services.AddDbContext<AppDbContext>(options => options.UseAppDatabase(connectionString));
         services.AddSingleton(TimeProvider.System);
+
+        services.AddScoped<IClassRepository, ClassRepository>();
 
         return services;
     }
