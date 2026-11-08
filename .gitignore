@@ -1,0 +1,26 @@
+# Assignment brief is confidential - never commit it
+*.pdf
+
+# Environment
+.env
+.env.local
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+
+# Node
+node_modules/
+dist/
+coverage/
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
