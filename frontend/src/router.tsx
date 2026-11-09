@@ -7,14 +7,7 @@ import { ApplicationDetailsPage } from '@/pages/parent/ApplicationDetailsPage'
 import { ClassesPage } from '@/pages/parent/ClassesPage'
 import { MyApplicationsPage } from '@/pages/parent/MyApplicationsPage'
 
-export const paths = {
-  classes: '/',
-  applications: '/applications',
-  application: (holdId: string) => `/applications/${holdId}`,
-  admin: '/admin',
-} as const
-
-export const router = createBrowserRouter([
+export const routes = [
   {
     element: <RootLayout />,
     errorElement: <RouteErrorPage />,
@@ -26,4 +19,6 @@ export const router = createBrowserRouter([
       { path: '*', element: <NotFoundPage /> },
     ],
   },
-])
+]
+
+export const router = createBrowserRouter(routes)
