@@ -31,6 +31,18 @@ export function getErrorCode(error: unknown): string | undefined {
   return undefined
 }
 
+/** Per-field validation messages from a 400 response, keyed by camelCase field name. */
+export function getFieldErrors(error: unknown): Record<string, string> {
+  if (!isAxiosError(error) || !isApiErrorBody(error.response?.data)) {
+    return {}
+  }
+  const fieldErrors: Record<string, string> = {}
+  for (const [field, messages] of Object.entries(error.response.data.errors ?? {})) {
+    if (messages.length > 0) fieldErrors[field] = messages[0]
+  }
+  return fieldErrors
+}
+
 /** Turns any failure into a sentence a parent or administrator can act on. */
 export function getErrorMessage(error: unknown): string {
   if (!isAxiosError(error)) {

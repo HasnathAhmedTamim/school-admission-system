@@ -13,9 +13,9 @@ export function RootLayout() {
     <div className="flex min-h-svh flex-col bg-muted/30">
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-4 px-4">
-          <Link to="/" className="flex items-center gap-2 font-semibold">
-            <GraduationCap className="size-5" aria-hidden />
-            <span>School Admission</span>
+          <Link to="/" className="flex items-center gap-2 font-semibold" aria-label="School Admission home">
+            <GraduationCap className="size-5 shrink-0" aria-hidden />
+            <span className="hidden sm:inline">School Admission</span>
           </Link>
           <nav aria-label="Main" className="ml-auto flex items-center gap-1">
             {navItems.map((item) => (
@@ -25,7 +25,7 @@ export function RootLayout() {
                 end={item.end}
                 className={({ isActive }) =>
                   cn(
-                    'rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                    'rounded-md px-2.5 py-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:px-3',
                     isActive && 'bg-muted text-foreground',
                   )
                 }
