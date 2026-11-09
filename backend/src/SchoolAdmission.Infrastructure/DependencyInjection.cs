@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using SchoolAdmission.Application.Admissions;
 using SchoolAdmission.Application.Classes;
+using SchoolAdmission.Infrastructure.BackgroundJobs;
 using SchoolAdmission.Infrastructure.Persistence;
 using SchoolAdmission.Infrastructure.Persistence.Repositories;
 
@@ -29,6 +30,8 @@ public static class DependencyInjection
 
         services.AddScoped<IClassRepository, ClassRepository>();
         services.AddScoped<IAdmissionHoldRepository, AdmissionHoldRepository>();
+
+        services.AddHostedService<HoldExpiryWorker>();
 
         return services;
     }
