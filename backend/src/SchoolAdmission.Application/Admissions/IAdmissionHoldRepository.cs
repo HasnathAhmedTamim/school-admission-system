@@ -25,8 +25,10 @@ public interface IAdmissionHoldRepository
         Guid classId, string studentId, DateTime nowUtc, TimeSpan duration, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Locks the hold row, applies <paramref name="modify"/> and saves the result in one transaction.
-    /// Returns null if the hold does not exist. Exceptions thrown by <paramref name="modify"/> roll back.
+    /// Locks the hold's class row (shared) and then the hold row, applies <paramref name="modify"/> and saves
+    /// the result in one transaction. Returns null if the hold does not exist. Exceptions thrown by
+    /// <paramref name="modify"/> roll back. <paramref name="modify"/> runs while the locks are held, so
+    /// time-dependent checks must read the clock inside it, not before calling this method.
     /// </summary>
     Task<LockedHoldResult<T>?> ModifyAsync<T>(
         Guid holdId, Func<AdmissionHold, T> modify, CancellationToken cancellationToken);

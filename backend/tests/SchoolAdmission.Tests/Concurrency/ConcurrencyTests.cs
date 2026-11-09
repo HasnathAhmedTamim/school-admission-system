@@ -1,4 +1,5 @@
 using System.Net;
+using Npgsql;
 using SchoolAdmission.Tests.Infrastructure;
 
 namespace SchoolAdmission.Tests.Concurrency;
@@ -73,6 +74,109 @@ public sealed class ConcurrencyTests(PostgresFixture db) : IDisposable
         Assert.Equal(seats, statuses.Count(s => s == HttpStatusCode.Created));
         Assert.Equal(requests - seats, statuses.Count(s => s == HttpStatusCode.Conflict));
         await AssertInvariantAsync(schoolClass.Id, expectedOccupied: seats);
+    }
+
+    [Fact]
+    public async Task SimultaneousConfirmsCancelsAndApplications_DoNotDeadlockOrOverbook()
+    {
+        const int seats = 10;
+        var client = _factory.CreateClient();
+        var schoolClass = await client.CreateClassAsync(seats, "Mixed load");
+        var holders = new List<(string StudentId, string HoldId)>();
+        for (var i = 0; i < seats; i++)
+        {
+            var studentId = ApiClient.NewStudentId();
+            holders.Add((studentId, (await client.ApplySuccessfullyAsync(schoolClass.Id, studentId)).HoldId));
+        }
+
+        var statuses = await FireSimultaneouslyAsync(60, i => i switch
+        {
+            < 5 => client.ConfirmAsync(holders[i].HoldId, holders[i].StudentId),
+            < 10 => client.CancelAsync(holders[i].HoldId, holders[i].StudentId),
+            _ => client.ApplyAsync(schoolClass.Id, ApiClient.NewStudentId())
+        });
+
+        Assert.All(statuses[..5], s => Assert.Equal(HttpStatusCode.OK, s));
+        Assert.All(statuses[5..10], s => Assert.Equal(HttpStatusCode.NoContent, s));
+        Assert.All(statuses[10..], s => Assert.Contains(s, new[] { HttpStatusCode.Created, HttpStatusCode.Conflict }));
+
+        var created = statuses[10..].Count(s => s == HttpStatusCode.Created);
+        Assert.InRange(created, 0, 5);
+        var (totalSeats, occupied, _) = await SeatInvariant.ReadAsync(db.ConnectionString, schoolClass.Id);
+        Assert.True(occupied <= totalSeats, $"Seat invariant violated: {occupied} occupied > {totalSeats} total");
+        Assert.Equal(5 + created, occupied);
+    }
+
+    [Fact]
+    public async Task ConfirmDelayedPastExpiry_WhileAnotherStudentApplies_DoesNotOverbook()
+    {
+        using var shortHolds = new ApiFactory(db.ConnectionString, holdDurationSeconds: 3);
+        var client = shortHolds.CreateClient();
+        var schoolClass = await client.CreateClassAsync(totalSeats: 1, "Expiry boundary");
+        var firstStudent = ApiClient.NewStudentId();
+        var hold = await client.ApplySuccessfullyAsync(schoolClass.Id, firstStudent);
+
+        // Holding the hold row's lock stalls the confirmation before its expiry check,
+        // like a request that arrives just before the deadline but is delayed under load.
+        await using var blocker = new NpgsqlConnection(db.ConnectionString);
+        await blocker.OpenAsync();
+        await using var blockerTransaction = await blocker.BeginTransactionAsync();
+        await using (var lockHold = new NpgsqlCommand(
+                         "SELECT 1 FROM admission_holds WHERE id = @id FOR UPDATE", blocker, blockerTransaction))
+        {
+            lockHold.Parameters.AddWithValue("id", Guid.Parse(hold.HoldId));
+            await lockHold.ExecuteScalarAsync();
+        }
+
+        var confirmTask = client.ConfirmAsync(hold.HoldId, firstStudent);
+        await WaitForLockWaitersAsync(1);
+
+        var untilExpired = hold.ExpiresAt.ToUniversalTime() - DateTime.UtcNow + TimeSpan.FromMilliseconds(300);
+        if (untilExpired > TimeSpan.Zero)
+        {
+            await Task.Delay(untilExpired);
+        }
+
+        var applyTask = client.ApplyAsync(schoolClass.Id, ApiClient.NewStudentId());
+        await Task.WhenAny(applyTask, WaitForLockWaitersAsync(2));
+        await blockerTransaction.RollbackAsync();
+
+        using var confirm = await confirmTask;
+        using var apply = await applyTask;
+
+        Assert.Equal(HttpStatusCode.Conflict, confirm.StatusCode);
+        Assert.Equal("HOLD_EXPIRED", (await confirm.ReadAsync<ErrorDto>()).Error);
+        Assert.Equal(HttpStatusCode.Created, apply.StatusCode);
+
+        var (totalSeats, occupied, _) = await SeatInvariant.ReadAsync(db.ConnectionString, schoolClass.Id);
+        Assert.True(occupied <= totalSeats, $"Seat invariant violated: {occupied} occupied > {totalSeats} total");
+        var stats = await client.GetClassAsync(schoolClass.Id);
+        Assert.Equal((1, 0, 0), (stats.HeldSeats, stats.ConfirmedSeats, stats.AvailableSeats));
+    }
+
+    /// <summary>Waits until at least <paramref name="count"/> statements in the test database are blocked on a lock.</summary>
+    private async Task WaitForLockWaitersAsync(int count)
+    {
+        await using var connection = new NpgsqlConnection(db.ConnectionString);
+        await connection.OpenAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            await using var command = new NpgsqlCommand(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+                connection);
+            if ((long)(await command.ExecuteScalarAsync())! >= count)
+            {
+                return;
+            }
+
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException($"Expected {count} statement(s) waiting on a lock.");
+            }
+
+            await Task.Delay(50);
+        }
     }
 
     /// <summary>Starts all requests at the same moment and waits for every response.</summary>

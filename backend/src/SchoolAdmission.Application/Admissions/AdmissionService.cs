@@ -28,6 +28,8 @@ public sealed class AdmissionService(
         var studentId = StudentIdentity.Require(studentIdHeader);
         var id = Identifiers.ParseClassId(classId);
 
+        // Read before waiting for the class lock. An earlier time can only count more holds as still active,
+        // never fewer, so it cannot cause overbooking.
         var result = await holds.CreateHoldAsync(id, studentId, UtcNow(), settings.Duration, cancellationToken);
 
         return result.Outcome switch
@@ -65,12 +67,13 @@ public sealed class AdmissionService(
     {
         var studentId = StudentIdentity.Require(studentIdHeader);
         var id = Identifiers.ParseHoldId(holdId);
-        var now = UtcNow();
 
+        // The clock is read after the locks are acquired: a request delayed while waiting for them
+        // must not confirm a hold that expired (and whose seat was given away) in the meantime.
         var locked = await holds.ModifyAsync(id, hold =>
         {
             EnsureOwner(hold, studentId);
-            return hold.Confirm(now);
+            return hold.Confirm(UtcNow());
         }, cancellationToken) ?? throw Identifiers.HoldNotFound();
 
         return locked.Result switch
@@ -92,12 +95,11 @@ public sealed class AdmissionService(
     {
         var studentId = StudentIdentity.Require(studentIdHeader);
         var id = Identifiers.ParseHoldId(holdId);
-        var now = UtcNow();
 
         var locked = await holds.ModifyAsync(id, hold =>
         {
             EnsureOwner(hold, studentId);
-            return hold.Cancel(now);
+            return hold.Cancel(UtcNow());
         }, cancellationToken) ?? throw Identifiers.HoldNotFound();
 
         switch (locked.Result)

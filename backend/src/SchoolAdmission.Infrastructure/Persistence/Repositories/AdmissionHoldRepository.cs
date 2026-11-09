@@ -7,9 +7,10 @@ using SchoolAdmission.Infrastructure.Persistence.Configurations;
 namespace SchoolAdmission.Infrastructure.Persistence.Repositories;
 
 /// <remarks>
-/// Lock ordering: CreateHoldAsync locks the class row and then (at most) the student's own stale hold;
-/// ModifyAsync locks only a single hold row; the expiry worker uses SKIP LOCKED. No code path waits for
-/// a class lock while holding a hold lock, so these transactions cannot deadlock each other.
+/// Lock ordering: CreateHoldAsync locks the class row (FOR UPDATE) and then (at most) the student's own
+/// stale hold; ModifyAsync locks the class row (FOR SHARE) and then one hold row; the expiry worker locks
+/// hold rows only, with SKIP LOCKED. No code path waits for a class lock while holding a hold lock, so these
+/// transactions cannot deadlock each other.
 /// </remarks>
 public sealed class AdmissionHoldRepository(AppDbContext db) : IAdmissionHoldRepository
 {
@@ -82,17 +83,28 @@ public sealed class AdmissionHoldRepository(AppDbContext db) : IAdmissionHoldRep
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        var hold = (await db.AdmissionHolds
-                .FromSql($"SELECT * FROM admission_holds WHERE id = {holdId} FOR UPDATE")
-                .ToListAsync(cancellationToken))
-            .SingleOrDefault();
+        // A hold never moves to another class, so its class can be looked up before locking.
+        var classId = await db.AdmissionHolds
+            .Where(h => h.Id == holdId)
+            .Select(h => (Guid?)h.ClassId)
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (hold is null)
+        if (classId is null)
         {
             return null;
         }
 
-        await db.Entry(hold).Reference(h => h.Class).LoadAsync(cancellationToken);
+        // The shared class lock makes CreateHoldAsync (FOR UPDATE) wait until this change commits, so a seat
+        // count can never see a hold as expired while it is being confirmed. Changes to other holds of the
+        // same class only take shared locks and do not wait for each other.
+        await db.Classes
+            .FromSql($"SELECT * FROM classes WHERE id = {classId} FOR SHARE")
+            .ToListAsync(cancellationToken);
+
+        var hold = (await db.AdmissionHolds
+                .FromSql($"SELECT * FROM admission_holds WHERE id = {holdId} FOR UPDATE")
+                .ToListAsync(cancellationToken))
+            .Single();
 
         var result = modify(hold);
 
