@@ -1,5 +1,6 @@
 # Assignment brief is confidential - never commit it
 *.pdf
+School_Admission_System_Assignment.md
 
 # Environment
 .env
