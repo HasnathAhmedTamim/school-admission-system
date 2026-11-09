@@ -9,6 +9,10 @@ FROM deps AS build
 COPY . .
 RUN npm run build
 
+FROM deps AS test
+COPY . .
+CMD ["npm", "test"]
+
 FROM nginx:1.27-alpine AS runtime
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Scripts in /docker-entrypoint.d run before nginx starts; this one writes config.js from VITE_API_BASE_URL.

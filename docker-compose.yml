@@ -55,5 +55,11 @@ services:
       postgres:
         condition: service_healthy
 
+  frontend-tests:
+    profiles: ["test"]
+    build:
+      context: ./frontend
+      target: test
+
 volumes:
   postgres-data:
